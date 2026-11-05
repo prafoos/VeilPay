@@ -564,13 +564,53 @@ describe('VeilPay application flows', () => {
     expect(walletAdapterMocks.sendBeldexTransaction).not.toHaveBeenCalled();
   });
 
-  it('explains network controls in settings and avoids claiming key storage', async () => {
+  it('shows verified wallet network, shortened address, app version, and security details in settings', async () => {
+    walletAdapterMocks.detectWallet.mockResolvedValue(connectedState);
     render(<App />);
-    fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
-    fireEvent.click(screen.getByRole('button', { name: 'Connect Wallet' }));
-    await screen.findByRole('button', { name: 'Disconnect' });
+    await screen.findByText('Connected · Testnet verified');
     fireEvent.click(screen.getByRole('button', { name: 'Settings', exact: true }));
-    expect(screen.getByText('Network: Beldex Testnet')).toBeInTheDocument();
-    expect(screen.getByText(/never asks for your private key or recovery phrase/)).toBeInTheDocument();
+
+    expect(screen.getByText('Testnet verified')).toBeInTheDocument();
+    expect(screen.getByText('testnet')).toBeInTheDocument();
+    expect(screen.getByText('Beldex Testnet only')).toBeInTheDocument();
+    expect(screen.getByText('Connected · Testnet verified', { selector: '.settings-details dd' })).toBeInTheDocument();
+    expect(screen.getByText('bxTestRece…gAddress')).toBeInTheDocument();
+    expect(screen.queryByText(connectedState.address)).not.toBeInTheDocument();
+    expect(screen.getByText('veilpay-mvp')).toBeInTheDocument();
+    expect(screen.getByText('0.1.0')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View VeilPay on GitHub' })).toHaveAttribute(
+      'href',
+      'https://github.com/prafoos/VeilPay',
+    );
+    expect(screen.getByText(/non-custodial/i)).toBeInTheDocument();
+    expect(screen.getByText(/transactions require approval in the beldex wallet/i)).toBeInTheDocument();
+    expect(screen.getByText(/never requests private keys or recovery phrases/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Disconnect wallet' })).toBeEnabled();
+  });
+
+  it('shows the disconnected state and lets the user connect from Settings', async () => {
+    render(<App />);
+    await screen.findByText('Wallet not detected');
+    fireEvent.click(screen.getByRole('button', { name: 'Settings', exact: true }));
+
+    expect(screen.getByText('Not verified')).toBeInTheDocument();
+    expect(screen.getByText('Unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Not connected')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Connect wallet' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Disconnect wallet' })).not.toBeInTheDocument();
+  });
+
+  it('disconnects the connected wallet from Settings and updates the displayed state', async () => {
+    walletAdapterMocks.disconnectWallet.mockClear();
+    walletAdapterMocks.detectWallet.mockResolvedValue(connectedState);
+    render(<App />);
+    await screen.findByText('Connected · Testnet verified');
+    fireEvent.click(screen.getByRole('button', { name: 'Settings', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect wallet' }));
+
+    expect(walletAdapterMocks.disconnectWallet).toHaveBeenCalledOnce();
+    expect(await screen.findByText('Disconnected', { selector: '.settings-details dd' })).toBeInTheDocument();
+    expect(screen.getByText('Not connected')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Connect wallet' })).toBeEnabled();
   });
 });

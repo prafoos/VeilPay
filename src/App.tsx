@@ -25,6 +25,7 @@ import {
   type PendingPayment,
 } from './lib/pendingPaymentStorage';
 import { generateAddressQr } from './lib/receiveQr';
+import appMetadata from '../package.json';
 
 const navItems: Array<{ key: Route; label: string }> = [
   { key: 'home', label: 'Home' },
@@ -78,10 +79,18 @@ function formatNetworkLabel(network: string | undefined): string {
   return 'Network not verified';
 }
 
+function shortenAddress(address: string): string {
+  if (address.length <= 18) {
+    return address;
+  }
+  return `${address.slice(0, 10)}…${address.slice(-8)}`;
+}
+
 function App() {
   const [route, setRoute] = useState<Route>('home');
   const [walletState, setWalletState] = useState<WalletConnectionState>({ status: 'detecting' });
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -273,11 +282,20 @@ function App() {
   }, [walletAddress]);
 
   async function disconnectWallet() {
-    const state = await disconnectBeldexWallet();
-    updateWalletState(state);
-    if (state.status === 'disconnected') {
-      setLastAction('Wallet disconnected.');
-      setReviewOpen(false);
+    if (isDisconnecting || walletState.status !== 'connected') {
+      return;
+    }
+
+    setIsDisconnecting(true);
+    try {
+      const state = await disconnectBeldexWallet();
+      updateWalletState(state);
+      if (state.status === 'disconnected') {
+        setLastAction('Wallet disconnected.');
+        setReviewOpen(false);
+      }
+    } finally {
+      setIsDisconnecting(false);
     }
   }
 
@@ -990,19 +1008,111 @@ function App() {
     }
 
     if (route === 'settings') {
+      const walletConnected = walletState.status === 'connected';
+      const testnetVerified = walletConnected && network === 'testnet';
+
       return (
         <div className="card route-card settings-screen">
-          <div className="section-title">
-            <h3>Settings</h3>
-          </div>
+          <div className="settings-grid">
+            <section className="settings-section" aria-labelledby="settings-network-heading">
+              <div className="section-title">
+                <h3 id="settings-network-heading">Network</h3>
+                <span className={`status-pill ${testnetVerified ? 'confirmed' : 'pending'}`}>
+                  {testnetVerified ? 'Testnet verified' : 'Not verified'}
+                </span>
+              </div>
+              <dl className="settings-details">
+                <div>
+                  <dt>Wallet network</dt>
+                  <dd>{network || (walletState.status === 'detecting' ? 'Checking…' : 'Unavailable')}</dd>
+                </div>
+                <div>
+                  <dt>App network policy</dt>
+                  <dd>Beldex Testnet only</dd>
+                </div>
+              </dl>
+              <p className="settings-note">
+                {testnetVerified
+                  ? 'The connected wallet reports Beldex Testnet. VeilPay does not switch networks.'
+                  : 'Network is verified only when a connected wallet reports Testnet. VeilPay does not switch networks.'}
+              </p>
+            </section>
 
-          <div className="wallet-card">
-            <div className="badge-row">
-              <span className="badge">Non-custodial</span>
-              <span className="badge">Testnet payments only</span>
-              <span className="badge">Network: {formatNetworkLabel(network)}</span>
-            </div>
-            <p>Your Beldex Wallet controls network selection and transaction approval. VeilPay never asks for your private key or recovery phrase.</p>
+            <section className="settings-section" aria-labelledby="settings-wallet-heading">
+              <div className="section-title">
+                <h3 id="settings-wallet-heading">Wallet</h3>
+              </div>
+              <dl className="settings-details">
+                <div>
+                  <dt>Connection</dt>
+                  <dd>{getWalletStatusLabel(walletState.status, walletState.network)}</dd>
+                </div>
+                <div>
+                  <dt>Address</dt>
+                  <dd className="settings-address" aria-label={walletAddress ? `Wallet address ${walletAddress}` : 'No wallet connected'}>
+                    {walletAddress ? shortenAddress(walletAddress) : 'Not connected'}
+                  </dd>
+                </div>
+              </dl>
+              {walletState.error ? <p className="settings-note" role="status">{walletState.error}</p> : null}
+              <div className="settings-actions">
+                {walletConnected ? (
+                  <button
+                    className="button danger"
+                    type="button"
+                    onClick={() => void disconnectWallet()}
+                    disabled={isDisconnecting}
+                  >
+                    {isDisconnecting ? 'Disconnecting…' : 'Disconnect wallet'}
+                  </button>
+                ) : (
+                  <button
+                    className="button secondary"
+                    type="button"
+                    onClick={() => void handleConnectWallet()}
+                    disabled={walletState.status === 'connecting'}
+                  >
+                    {walletState.status === 'connecting' ? 'Waiting for approval…' : 'Connect wallet'}
+                  </button>
+                )}
+              </div>
+            </section>
+
+            <section className="settings-section" aria-labelledby="settings-security-heading">
+              <div className="section-title">
+                <h3 id="settings-security-heading">Security &amp; Privacy</h3>
+              </div>
+              <ul className="settings-points">
+                <li>VeilPay is non-custodial; your wallet remains in control of your funds.</li>
+                <li>Transactions require approval in the Beldex Wallet.</li>
+                <li>VeilPay never requests private keys or recovery phrases.</li>
+              </ul>
+            </section>
+
+            <section className="settings-section" aria-labelledby="settings-about-heading">
+              <div className="section-title">
+                <h3 id="settings-about-heading">About</h3>
+                <span className="badge badge-muted">Beldex Testnet</span>
+              </div>
+              <dl className="settings-details">
+                <div>
+                  <dt>Application</dt>
+                  <dd>{appMetadata.name}</dd>
+                </div>
+                <div>
+                  <dt>Version</dt>
+                  <dd>{appMetadata.version}</dd>
+                </div>
+              </dl>
+              <a
+                className="settings-link"
+                href="https://github.com/prafoos/VeilPay"
+                target="_blank"
+                rel="noreferrer"
+              >
+                View VeilPay on GitHub
+              </a>
+            </section>
           </div>
         </div>
       );
